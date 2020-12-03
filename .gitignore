@@ -1,0 +1,11 @@
+*/Debug/*
+*/Release/*
+*.tlog
+*.log
+*.obj
+*.suo
+*.idb
+*.pdb
+*.aps
+*.opensdf
+*.sdf
