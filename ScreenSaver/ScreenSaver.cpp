@@ -1,5 +1,5 @@
 //Barebones screensaver example from the-generalist.com
-
+//http://www.cityintherain.com/howtoscr.html
 #include <windows.h>
 #include <scrnsave.h>
 #include <strsafe.h>
@@ -21,10 +21,11 @@
 
 //define a Windows timer
 #define TIMER 1
+enum RGBColor_e{eRGBColor_R,eRGBColor_G,eRGBColor_B};
 
 #define MaxDepth 32 //Far too big for any mortal computer
 #define FramesPerSecond 24.
-#define ColorAdjustment 0.85
+#define ColorAdjustment 0.15
 
 extern "C" {
 	_declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
@@ -34,7 +35,7 @@ extern "C" {
 static double accumulatedSeconds;
 static double accumulatedFrames;
 static double framesBetweenDepthChanges;
-static unsigned int targetDepth = 15;
+static unsigned int targetDepth = 14;
 static unsigned int viewsCount;
 static double totalPixelCount;
 
@@ -46,15 +47,18 @@ typedef struct {
 	double y;
 } Point;
 
-typedef struct {
+struct Size{
 	double width;
 	double height;
-} Size;
+	Size():width(.0),height(.0){}
+	Size(double w,double h):width(w),height(h){}
+};
 
-typedef struct {
+struct Rect{
 	Point origin;
 	Size size;
-} Rect;
+	Rect():origin(),size(){};
+};
 
 static double transition(double now, double transitionSeconds, ...){
 	va_list ap;
@@ -119,10 +123,10 @@ static void initRotator(Rotator rotator, double rotation, double scale)
 
 /** Apply `rotator` to the vector described by `s0`, returning a new vector. */
 static inline Size rotateSize(Rotator rotator, Size s0){
-   return { 
+   return Size( 
 	   double(s0.width * rotator[0] - s0.height * rotator[1]),
 	   double(s0.width * rotator[1] + s0.height * rotator[0])
-   };
+   );
 }
 
 /*** Return the number of seconds since midnight, localtime. */
@@ -166,7 +170,7 @@ static Rect getRootAndRotators(Rect bounds, Rotator secondRotator, Rotator minut
 	initRotator(hourRotator, hourRotation, 1);
 	double rootSize = min(bounds.size.width, bounds.size.height)/6.;
 	Rect root;
-	Size rootSizeStruct = {-rootSize, 0};
+	Size rootSizeStruct(-rootSize, 0);
 	root.size = rotateSize(hourRotator, rootSizeStruct);
 	root.origin.x = midX(bounds) - root.size.width;
 	root.origin.y = midY(bounds) - root.size.height;
@@ -174,14 +178,26 @@ static Rect getRootAndRotators(Rect bounds, Rotator secondRotator, Rotator minut
 }
 
 static void drawBranch(Rect* line, Rotator &r0, Rotator &r1, 
-					   unsigned int depth, unsigned int depthLeft, double* color)
+					   unsigned int depth, unsigned int depthLeft, double* rgb)
 {
 	Point p2 = {
 		line->origin.x + line->size.width,
 		line->origin.y + line->size.height
 	};
 
-	glColor4f(color[0], color[1], color[2], alphaForDepth[depth]);
+	double r=r0[1]>0?r0[1]:-r0[1];
+	double R=r1[1]>0?r1[1]:-r1[1];
+	double R_=R-r;
+	if(R_<0)R_=-R_;
+	
+	if(depth>1)
+	glColor4f(
+		/*rand()%2?*/rgb[eRGBColor_R]*(rand()%255)/255,//*R_,//:rgb[eRGBColor_R]+(r1[1]+0.1),
+		/*rand()%2?*/rgb[eRGBColor_G]*(rand()%255)/255,//*R_,//:rgb[eRGBColor_G]+(r1[1]+0.1),
+		/*rand()%2?*/rgb[eRGBColor_B]*(rand()%255)/255,//*R_,//:rgb[eRGBColor_B]+(r1[1]+0.1),
+		alphaForDepth[depth]);
+	else
+		glColor4f(rgb[eRGBColor_R],rgb[eRGBColor_G],rgb[eRGBColor_B],alphaForDepth[depth]);
 	if (depth == 0) {
 		glVertex2f(
 			line->origin.x + line->size.width * .5,
@@ -191,21 +207,45 @@ static void drawBranch(Rect* line, Rotator &r0, Rotator &r1,
 		glVertex2f(line->origin.x, line->origin.y);
 	glVertex2f(p2.x, p2.y);
 
-	if (depthLeft >= 1) {
+	if (depthLeft >= 1)
+	{
+		const int dd1(depth?depth:1);
+		const int dd2(depthLeft?depthLeft:1);
+		double newRGB[3] = { depth>=1?double(rand()%255)/255.:1.,  //* rgb[eRGBColor_R],///*-((((double) rand() / (RAND_MAX))*/ + 1))/*100.*(depth%(eRGBColor_R+1))*/,
+							 depth>=1?double(rand()%255)/255.:1.,  //* rgb[eRGBColor_G],///*-((((double) rand() / (RAND_MAX))*/ + 1))/*100.*(depth%(eRGBColor_G+1))*/,
+							 depth>=1?double(rand()%255)/255.:1.,};// * rgb[eRGBColor_B]};///*-((((double) rand() / (RAND_MAX))*/ + 1))/*100.*(depth%(eRGBColor_B+1))*/ };
+
 		Rect newLine;
 		newLine.origin = p2;
-		double newColor[3] = { color[0], color[1], color[2] };
-		newColor[1] = .92 * color[1];
-
 		newLine.size = rotateSize(r0, line->size);
-		newColor[0] = ColorAdjustment * color[0];
-		newColor[2] = .1 + ColorAdjustment * color[2];
-		drawBranch(&newLine, r0, r1, depth + 1, depthLeft - 1, newColor);
+
+	
+		//const double RGBStep1[3] = {
+		//	(!(depth%dd2+rgb[eRGBColor_R]))?0:((eRGBColor_R+1)*0.321),
+		//	(!(depth%dd2+rgb[eRGBColor_G]))?0:((eRGBColor_G+1)*0.321),
+		//	(!(depth%dd2+rgb[eRGBColor_B]))?0:((eRGBColor_B+1)*0.321)};
+
+		//newRGB[eRGBColor_R] = /*RGBStep1[eRGBColor_R]*ColorAdjustment +*/ rgb[eRGBColor_R];
+		//newRGB[eRGBColor_G] = /*RGBStep1[eRGBColor_G]*ColorAdjustment +*/ rgb[eRGBColor_G];
+		//newRGB[eRGBColor_B] = /*RGBStep1[eRGBColor_B]*ColorAdjustment +*/ rgb[eRGBColor_B];
+
+		const double RGBStep2[3] = {
+			(!(depthLeft%dd1+rgb[eRGBColor_R]))?0:((eRGBColor_R+1)*0.1),
+			(!(depthLeft%dd1+rgb[eRGBColor_G]))?0:((eRGBColor_G+1)*0.1),
+			(!(depthLeft%dd1+rgb[eRGBColor_B]))?0:((eRGBColor_B+1)*0.1)};
+
+		if(depth>=1)
+		{
+			newRGB[rand()%3] = RGBStep2[eRGBColor_R]*ColorAdjustment + rgb[eRGBColor_R];
+			newRGB[rand()%3] = RGBStep2[eRGBColor_G]*ColorAdjustment + rgb[eRGBColor_G];
+			newRGB[rand()%3] = RGBStep2[eRGBColor_B]*ColorAdjustment + rgb[eRGBColor_B];
+		}
+
+		drawBranch(&newLine, r0, r1, depth + 1, depthLeft - 1, newRGB);
 
 		newLine.size = rotateSize(r1, line->size);
-		newColor[0] = .1 + ColorAdjustment * color[0];
-		newColor[2] = ColorAdjustment * color[2];
-		drawBranch(&newLine, r0, r1, depth + 1, depthLeft - 1, newColor);
+
+		drawBranch(&newLine, r0, r1, depth + 1, depthLeft - 1, newRGB);
 	}
 }
 
@@ -254,17 +294,28 @@ double Log2(double n)
 	return log(n)/log(2);
 }
 
+int init_srand()
+{
+	srand(time_t());
+	return 1;
+}
 //Required Function
 LRESULT WINAPI ScreenSaverProc(HWND hWnd, UINT message, 
                                WPARAM wParam, LPARAM lParam)
 {
+	//static int srander=init_srand();
+	srand(0&time(0));
 	static HDC hDC;
 	static HGLRC hRC;
 	static RECT rect;
 	static Point origin;
 	static Size windowSize;
 	static Rect windowRect;
-	static double rootColor[3] = { 1, 1, 1 };
+	static double rootColor[3];
+
+	rootColor[eRGBColor_R]=1.0;
+	rootColor[eRGBColor_G]=1.0;
+	rootColor[eRGBColor_B]=1.0;
 
 	switch(message) {
 		case WM_CREATE:
@@ -284,15 +335,19 @@ LRESULT WINAPI ScreenSaverProc(HWND hWnd, UINT message,
 
 			//Initialize perspective, viewpoint, and
 			//any objects you wish to animate here
-			alphaForDepth[0] = 1;
-			for (int i = 1; i < MaxDepth; ++i)
-				alphaForDepth[i] = pow(i, -1.0);
+			for (int i = 0; i < 3; ++i)
+				alphaForDepth[i] = 1;
+			for (int i = 3; i < MaxDepth; ++i)
+				//alphaForDepth[i] = pow(1.0, -i)/i;
+				alphaForDepth[i] = pow(i, -.87654321);///i;
 
 			//create timer that ticks every 10 ms
+			//SetTimer( hWnd, TIMER, 10, NULL );
 			SetTimer( hWnd, TIMER, 15, NULL );
+			//SetTimer( hWnd, TIMER, 1000, NULL );
 			return(0);
- 
-		case WM_TIMER:
+
+		case WM_TIMER:{
 			//Put your drawing code here
 			//This is called every 10 ms
 			//time_t startTime = time(NULL);
@@ -307,23 +362,30 @@ LRESULT WINAPI ScreenSaverProc(HWND hWnd, UINT message,
 
 			glClearColor(0., 0., 0., 1.);
 			glClear(GL_COLOR_BUFFER_BIT);
-			
+		
 			Rotator r0;
 			Rotator r1;
 			Rect root = getRootAndRotators(bounds, r0, r1);
-			
-			glLineWidth(2.);
-			glBegin(GL_LINES);
+
+			//if(1||time(0)%2)
+			//{
+				glLineWidth(1.5);
+				glBegin(GL_LINES);
+			//}else{
+			//	glPointSize(1.5);
+			//	glBegin(GL_POINTS);
+			//}
+
 			drawBranch(&root, r0, r1, 0, targetDepth, rootColor);
 			glEnd();
 
 			glFlush();
 			SwapBuffers(hDC);
-			
+		
 			//accumulatedSeconds += time(NULL) - startTime;
 			//++accumulatedFrames;
 			return(0);
-		
+		}
 		case WM_DESTROY:
 			//Put you cleanup code here.
 			//This will be called on close.
@@ -343,8 +405,8 @@ LRESULT WINAPI ScreenSaverProc(HWND hWnd, UINT message,
 #define DEFVEL  5                 // default redraw speed value    
 
 LONG    lSpeed = DEFVEL;          // redraw speed variable         
-extern HINSTANCE hMainInstance;   // screen saver instance handle  
-STRSAFE_LPWSTR   szTemp;                // temporary array of characters  
+extern HINSTANCE hMainInstance;   // screen saver instance handle
+TCHAR   szTemp[20];                // temporary array of characters
 LPCWSTR szRedrawSpeed = L"Redraw Speed";   // .ini speed entry 
 
 //Required Function
@@ -463,4 +525,3 @@ BOOL WINAPI RegisterDialogClasses(HANDLE hInst)
 {
 	return(TRUE);
 }
-
